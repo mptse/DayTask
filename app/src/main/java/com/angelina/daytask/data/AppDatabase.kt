@@ -4,8 +4,20 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.TypeConverter
+import androidx.room.TypeConverters
+import com.angelina.daytask.data.model.NoteCategory
 
-@Database(entities = [TaskEntity::class, NoteEntity::class, UserEntity::class], version = 2, exportSchema = false)
+class Converters {
+    @TypeConverter
+    fun fromNoteCategory(value: NoteCategory) = value.name
+
+    @TypeConverter
+    fun toNoteCategory(value: String) = NoteCategory.valueOf(value)
+}
+
+@Database(entities = [TaskEntity::class, NoteEntity::class, UserEntity::class], version = 3, exportSchema = false)
+@TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun taskDao(): TaskDao
     abstract fun noteDao(): NoteDao

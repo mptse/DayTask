@@ -110,5 +110,5 @@ class MainViewModel(
 fun TaskEntity.toModel() = Task(id, name, emoji, completed, xp, day, time)
 fun Task.toEntity() = TaskEntity(id, name, emoji, completed, xp, day, time)
 
-fun NoteEntity.toModel() = Note(id, title, content, date)
-fun Note.toEntity() = NoteEntity(id, title, content, date)
+fun NoteEntity.toModel() = Note(id, title, content, date, category)
+fun Note.toEntity() = NoteEntity(id, title, content, date, category)
