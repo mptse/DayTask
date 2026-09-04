@@ -11,12 +11,37 @@ import androidx.core.app.NotificationCompat
 import com.angelina.daytask.MainActivity
 import com.angelina.daytask.R
 
+import com.angelina.daytask.data.AppDatabase
+import com.angelina.daytask.ui.viewmodel.toModel
+import com.angelina.daytask.util.NotificationHelper
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+
 class TaskNotificationReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action == Intent.ACTION_BOOT_COMPLETED) {
+            reScheduleAlarms(context)
+            return
+        }
+
         val taskName = intent.getStringExtra("TASK_NAME") ?: "Tarea pendiente"
         val taskEmoji = intent.getStringExtra("TASK_EMOJI") ?: "🎯"
 
         showNotification(context, taskName, taskEmoji)
+    }
+
+    private fun reScheduleAlarms(context: Context) {
+        val db = AppDatabase.getDatabase(context)
+        CoroutineScope(Dispatchers.IO).launch {
+            val tasks = db.taskDao().getAllTasks().first()
+            tasks.forEach { entity ->
+                if (!entity.completed) {
+                    NotificationHelper.scheduleTaskNotification(context, entity.toModel())
+                }
+            }
+        }
     }
 
     private fun showNotification(context: Context, title: String, emoji: String) {
