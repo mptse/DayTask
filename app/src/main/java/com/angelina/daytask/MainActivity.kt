@@ -6,6 +6,7 @@ import androidx.biometric.BiometricPrompt
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.*
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -200,8 +201,28 @@ fun DayTaskApp(viewModel: MainViewModel) {
 
 @Composable
 fun AppBackground(isDark: Boolean, content: @Composable () -> Unit) {
-    val bgColors = if (isDark) listOf(BgGradientStartDark, BgGradientEndDark) else listOf(BgGradientStart, BgGradientEnd)
-    Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(bgColors))) { content() }
+    val currentHour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+    
+    val bgColors = remember(currentHour, isDark) {
+        if (isDark) {
+            listOf(BgGradientStartDark, BgGradientEndDark)
+        } else {
+            when {
+                currentHour in 5..8 -> listOf(Color(0xFFFFE0B2), Color(0xFFE1F5FE)) // Amanecer
+                currentHour in 9..16 -> listOf(BgGradientStart, BgGradientEnd)      // Día
+                currentHour in 17..19 -> listOf(Color(0xFFFFCCBC), Color(0xFFD1C4E9)) // Atardecer
+                else -> listOf(Color(0xFF1A237E), Color(0xFF311B92))                // Noche
+            }
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Brush.verticalGradient(bgColors))
+    ) {
+        content()
+    }
 }
 
 @Composable
@@ -623,8 +644,31 @@ fun AdventureProgressMap(tasks: List<Task>, settings: UserSettings, modifier: Mo
     val completedCount = tasks.count { it.completed }
     val totalCount = tasks.size
     val progressFraction = if (totalCount > 0) completedCount.toFloat() / totalCount else 0f
+    val density = LocalDensity.current.density
     val isDark = settings.darkTheme ?: isSystemInDarkTheme()
-    val animatedProgress by animateFloatAsState(progressFraction, tween(1000), label = "p")
+    
+    val infiniteTransition = rememberInfiniteTransition(label = "mapAnimation")
+    val cloudOffset by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1000f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(40000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "cloudAnimation"
+    )
+
+    val bounceValue by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 6f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1500, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "bounceAnimation"
+    )
+
+    val animatedProgress by animateFloatAsState(progressFraction, tween(1200), label = "p")
     val skyColors = when (settings.landscape) {
         LandscapeType.MOUNTAIN -> if (isDark) listOf(Color(0xFF0F0C29), Color(0xFF302B63)) else listOf(Color(0xFF87CEEB), Color(0xFFE0F7FA))
         LandscapeType.FOREST -> if (isDark) listOf(Color(0xFF0D1F0D), Color(0xFF1B5E20)) else listOf(Color(0xFFB2EBF2), Color(0xFFE1F5FE))
@@ -647,63 +691,83 @@ fun AdventureProgressMap(tasks: List<Task>, settings: UserSettings, modifier: Mo
             Canvas(Modifier.fillMaxSize()) {
                 drawRect(Brush.verticalGradient(skyColors))
                 
-                // Estrellas o Brillo Solar
+                // Nubes o Estrellas con movimiento
                 if (isDark) {
                     val random = java.util.Random(42)
-                    repeat(15) { 
-                        val rx = random.nextFloat() * width
+                    repeat(20) { 
+                        val rx = (random.nextFloat() * width + cloudOffset * 0.5f) % width
                         val ry = random.nextFloat() * (height * 0.5f)
-                        drawCircle(Color.White.copy(alpha = 0.4f), 1.dp.toPx(), androidx.compose.ui.geometry.Offset(rx, ry))
+                        drawCircle(Color.White.copy(alpha = 0.3f), 1.dp.toPx(), androidx.compose.ui.geometry.Offset(rx, ry))
                     }
-                    // Luna sutil
-                    drawCircle(Color(0xFFE0E0E0).copy(alpha = 0.1f), 30.dp.toPx(), androidx.compose.ui.geometry.Offset(width * 0.85f, height * 0.2f))
-                    drawCircle(Color(0xFFF5F5F5), 20.dp.toPx(), androidx.compose.ui.geometry.Offset(width * 0.85f, height * 0.2f))
+                    drawCircle(Color(0xFFF5F5F5), 18.dp.toPx(), androidx.compose.ui.geometry.Offset(width * 0.85f, height * 0.2f))
                 } else {
-                    // Sol sutil
-                    drawCircle(Color(0xFFFFD700).copy(alpha = 0.1f), 40.dp.toPx(), androidx.compose.ui.geometry.Offset(width * 0.85f, height * 0.2f))
-                    drawCircle(Color(0xFFFFEB3B), 25.dp.toPx(), androidx.compose.ui.geometry.Offset(width * 0.85f, height * 0.2f))
+                    // Nubes dinámicas
+                    repeat(3) { i ->
+                        val cx = ((width * 0.3f * i) + cloudOffset) % (width + 200f) - 100f
+                        val cy = height * (0.15f + i * 0.05f)
+                        drawCircle(Color.White.copy(alpha = 0.6f), 20.dp.toPx(), androidx.compose.ui.geometry.Offset(cx, cy))
+                        drawCircle(Color.White.copy(alpha = 0.6f), 15.dp.toPx(), androidx.compose.ui.geometry.Offset(cx - 15.dp.toPx(), cy + 5.dp.toPx()))
+                        drawCircle(Color.White.copy(alpha = 0.6f), 15.dp.toPx(), androidx.compose.ui.geometry.Offset(cx + 15.dp.toPx(), cy + 5.dp.toPx()))
+                    }
+                    drawCircle(Color(0xFFFFEB3B), 22.dp.toPx(), androidx.compose.ui.geometry.Offset(width * 0.85f, height * 0.2f))
                 }
 
                 when (settings.landscape) {
                     LandscapeType.MOUNTAIN -> {
-                        val mPath = Path().apply {
-                            moveTo(width * 0.2f, height * 0.9f)
-                            lineTo(width * 0.45f, height * 0.4f)
-                            lineTo(width * 0.7f, height * 0.9f)
+                        // Capa lejana
+                        val mPathBack = Path().apply {
+                            moveTo(width * 0.4f, height * 0.9f)
+                            lineTo(width * 0.65f, height * 0.5f)
+                            lineTo(width * 0.9f, height * 0.9f)
                         }
-                        drawPath(mPath, elementColor.copy(alpha = 0.7f))
+                        drawPath(mPathBack, elementColor.copy(alpha = 0.4f))
+                        
+                        // Capa cercana
+                        val mPathFront = Path().apply {
+                            moveTo(width * 0.1f, height * 0.95f)
+                            lineTo(width * 0.4f, height * 0.45f)
+                            lineTo(width * 0.7f, height * 0.95f)
+                        }
+                        drawPath(mPathFront, elementColor)
+                        
                         val peak = Path().apply {
-                            moveTo(width * 0.45f, height * 0.4f)
-                            lineTo(width * 0.4f, height * 0.5f)
-                            lineTo(width * 0.5f, height * 0.5f)
+                            moveTo(width * 0.4f, height * 0.45f)
+                            lineTo(width * 0.35f, height * 0.55f)
+                            lineTo(width * 0.45f, height * 0.55f)
                         }
-                        drawPath(peak, Color.White.copy(alpha = 0.9f))
+                        drawPath(peak, Color.White.copy(alpha = 0.95f))
                     }
                     LandscapeType.FOREST -> {
-                        repeat(5) { i ->
-                            val tx = width * (0.15f + i * 0.18f)
-                            val ty = height * 0.6f
-                            drawRect(Color(0xFF3E2723), androidx.compose.ui.geometry.Offset(tx - 3.dp.toPx(), ty), androidx.compose.ui.geometry.Size(6.dp.toPx(), height * 0.3f))
-                            drawCircle(elementColor, 20.dp.toPx(), androidx.compose.ui.geometry.Offset(tx, ty))
-                            drawCircle(elementColor.copy(alpha = 0.8f), 15.dp.toPx(), androidx.compose.ui.geometry.Offset(tx, ty - 10.dp.toPx()))
+                        repeat(6) { i ->
+                            val tx = width * (0.1f + i * 0.16f)
+                            val ty = height * (0.55f + (i % 2) * 0.05f)
+                            drawRect(Color(0xFF3E2723), androidx.compose.ui.geometry.Offset(tx - 2.dp.toPx(), ty), androidx.compose.ui.geometry.Size(4.dp.toPx(), height * 0.4f))
+                            drawCircle(elementColor, 22.dp.toPx(), androidx.compose.ui.geometry.Offset(tx, ty))
+                            drawCircle(elementColor.copy(alpha = 0.7f), 18.dp.toPx(), androidx.compose.ui.geometry.Offset(tx, ty - 12.dp.toPx()))
                         }
                     }
                     LandscapeType.DESERT -> {
                         drawPath(Path().apply {
                             moveTo(0f, height * 0.85f)
-                            quadraticTo(width * 0.4f, height * 0.5f, width * 0.8f, height * 0.85f)
+                            quadraticTo(width * 0.3f, height * 0.6f, width * 0.6f, height * 0.85f)
                             lineTo(width, height); lineTo(0f, height)
+                        }, elementColor.copy(alpha = 0.6f))
+                        drawPath(Path().apply {
+                            moveTo(width * 0.4f, height * 0.9f)
+                            quadraticTo(width * 0.75f, height * 0.65f, width, height * 0.9f)
+                            lineTo(width, height); lineTo(width * 0.4f, height)
                         }, elementColor)
                     }
                 }
-                drawPath(adventurePath, Color.White.copy(alpha = 0.4f), style = Stroke(6.dp.toPx(), cap = StrokeCap.Round))
+                drawPath(adventurePath, Color.White.copy(alpha = 0.3f), style = Stroke(6.dp.toPx(), cap = StrokeCap.Round))
                 for (i in 0..totalCount) {
                     val f = if (totalCount > 0) i.toFloat() / totalCount else 0f
                     drawCircle(if (i <= completedCount) GoldReward else Color.White.copy(alpha = 0.3f), radius = 6.dp.toPx(), center = pathMeasure.getPosition(pathMeasure.length * f))
                 }
             }
-            Box(Modifier.align(Alignment.TopStart).padding(start = (indicatorPos.x / LocalDensity.current.density).dp - 15.dp, top = (indicatorPos.y / LocalDensity.current.density).dp - 35.dp).size(30.dp).clip(CircleShape).background(Color.White).padding(2.dp).background(PrimaryPurple, CircleShape), Alignment.Center) {
-                Text("🏃", Modifier.graphicsLayer(scaleX = -1f), fontSize = 14.sp)
+            // Indicador con rebote
+            Box(Modifier.align(Alignment.TopStart).padding(start = (indicatorPos.x / density).dp - 15.dp, top = (indicatorPos.y / density).dp - 35.dp - bounceValue.dp).size(32.dp).clip(CircleShape).background(Color.White).padding(2.dp).background(PrimaryPurple, CircleShape), Alignment.Center) {
+                Text("🏃", Modifier.graphicsLayer(scaleX = -1f), fontSize = 16.sp)
             }
         }
         Row(
@@ -713,7 +777,8 @@ fun AdventureProgressMap(tasks: List<Task>, settings: UserSettings, modifier: Mo
         ) {
             Column {
                 Text(if (settings.language == Language.ES) "Progreso de Aventura" else "Adventure Progress", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                val phrase = if (completedCount == totalCount && totalCount > 0) "¡Cumbre alcanzada!" else "Cada paso cuenta..."
+                val mapPhrases = if (settings.language == Language.ES) listOf("¡Tu aventura comienza!", "¡Sigue así!", "¡Meta alcanzada!") else listOf("Adventure starts!", "Keep it up!", "Goal reached!")
+                val phrase = when { completedCount == 0 -> mapPhrases[0]; completedCount == totalCount && totalCount > 0 -> mapPhrases.last(); else -> mapPhrases[1] }
                 Text(phrase, style = MaterialTheme.typography.labelSmall, color = PrimaryPurple)
             }
             Text("${(progressFraction * 100).toInt()}%", color = PrimaryPurple, fontWeight = FontWeight.Bold)
