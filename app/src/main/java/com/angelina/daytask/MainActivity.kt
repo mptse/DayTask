@@ -4,8 +4,6 @@ import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.biometric.BiometricPrompt
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.*
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -16,7 +14,6 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -36,8 +33,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathMeasure
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -92,7 +89,7 @@ fun DayTaskApp(viewModel: MainViewModel) {
     val notes by viewModel.notes.collectAsState()
     val settings = viewModel.userSettings
 
-    val isDark = settings.darkTheme ?: isSystemInDarkTheme()
+    val isDark = settings.darkTheme
 
     fun handleLogin() {
         if (settings.isBiometricEnabled) {
@@ -171,6 +168,7 @@ fun DayTaskApp(viewModel: MainViewModel) {
                     "home" -> AppBackground(isDark = isDark) {
                         HomeScreen(
                             tasks = tasks,
+                            user = viewModel.currentUser,
                             settings = settings,
                             onNavigateToSettings = { screen = "settings" },
                             onUpdateTask = { viewModel.updateTask(it) },
@@ -208,10 +206,10 @@ fun AppBackground(isDark: Boolean, content: @Composable () -> Unit) {
             listOf(BgGradientStartDark, BgGradientEndDark)
         } else {
             when {
-                currentHour in 5..8 -> listOf(Color(0xFFFFE0B2), Color(0xFFE1F5FE)) // Amanecer
-                currentHour in 9..16 -> listOf(BgGradientStart, BgGradientEnd)      // Día
-                currentHour in 17..19 -> listOf(Color(0xFFFFCCBC), Color(0xFFD1C4E9)) // Atardecer
-                else -> listOf(Color(0xFF1A237E), Color(0xFF311B92))                // Noche
+                currentHour in 5..8 -> listOf(LightAmanecerStart, LightAmanecerEnd)
+                currentHour in 9..16 -> listOf(BgGradientStart, BgGradientEnd)
+                currentHour in 17..19 -> listOf(LightAtardecerStart, LightAtardecerEnd)
+                else -> listOf(LightNocheStart, LightNocheEnd)
             }
         }
     }
@@ -302,11 +300,18 @@ fun RegisterScreen(onRegister: (String, String, String) -> Unit, onBack: () -> U
 }
 
 @Composable
-fun HomeScreen(tasks: List<Task>, settings: UserSettings, onNavigateToSettings: () -> Unit, onUpdateTask: (Task) -> Unit, onAddTask: (Task) -> Unit) {
+fun HomeScreen(
+    tasks: List<Task>,
+    user: com.angelina.daytask.data.UserEntity?,
+    settings: UserSettings,
+    onNavigateToSettings: () -> Unit,
+    onUpdateTask: (Task) -> Unit,
+    onAddTask: (Task) -> Unit
+) {
     val completionPhrases = if (settings.language == Language.ES) listOf("¡Meta completada! 🎉", "¡Excelente trabajo!") else listOf("Goal completed! 🎉", "Excellent work!")
-    var showMsg by remember { mutableStateOf(false) }
     var lastPhrase by remember { mutableStateOf("") }
-    var showDialog by remember { mutableStateOf(false) }
+    var showMsg by remember { mutableStateOf(false) }
+    var showAddTaskDialog by remember { mutableStateOf(false) }
 
     val currentHour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
     val greeting = when {
@@ -316,7 +321,15 @@ fun HomeScreen(tasks: List<Task>, settings: UserSettings, onNavigateToSettings: 
     }
 
     LaunchedEffect(showMsg) { if (showMsg) { delay(2500); showMsg = false } }
-    Scaffold(containerColor = Color.Transparent, floatingActionButton = { FloatingActionButton({ showDialog = true }, containerColor = PrimaryPurple, contentColor = Color.White, shape = RoundedCornerShape(18.dp)) { Text("+", style = MaterialTheme.typography.headlineMedium) } }) { p ->
+
+    Scaffold(
+        containerColor = Color.Transparent,
+        floatingActionButton = {
+            FloatingActionButton(onClick = { showAddTaskDialog = true }, containerColor = PrimaryPurple, contentColor = Color.White, shape = RoundedCornerShape(18.dp)) {
+                Text(text = "+", style = MaterialTheme.typography.headlineMedium)
+            }
+        }
+    ) { p ->
         Box(Modifier.fillMaxSize()) {
             LazyColumn(Modifier.fillMaxSize().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(top = p.calculateTopPadding() + 20.dp, bottom = 100.dp)) {
                 item {
@@ -327,21 +340,62 @@ fun HomeScreen(tasks: List<Task>, settings: UserSettings, onNavigateToSettings: 
                         }
                         IconButton(onNavigateToSettings) { Icon(Icons.Default.Settings, null) }
                     }
-                    Spacer(Modifier.height(18.dp))
-                    AdventureProgressMap(tasks, settings)
-                    Spacer(Modifier.height(24.dp))
+                    
+                    UserLevelDisplay(user = user)
+
+                    Spacer(modifier = Modifier.height(18.dp))
+                    AdventureProgressMap(tasks = tasks, settings = settings)
+                    Spacer(modifier = Modifier.height(24.dp))
                     Text(if (settings.language == Language.ES) "Actividades" else "Activities", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
                 }
-                items(tasks) { task -> TaskCard(task) { checked -> onUpdateTask(task.copy(completed = checked)); if (checked) { lastPhrase = completionPhrases.random(); showMsg = true } } }
+                items(tasks) { task ->
+                    TaskCard(task) { checked ->
+                        onUpdateTask(task.copy(completed = checked))
+                        if (checked) { lastPhrase = completionPhrases.random(); showMsg = true }
+                    }
+                }
             }
             AnimatedVisibility(visible = showMsg, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 100.dp), enter = fadeIn() + scaleIn(), exit = fadeOut() + scaleOut()) {
-                Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = SuccessGreen)) { 
+                Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = SuccessGreen), elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)) { 
                     Text(lastPhrase, Modifier.padding(horizontal = 24.dp, vertical = 12.dp), Color.White, fontWeight = FontWeight.Bold) 
                 }
             }
         }
     }
-    if (showDialog) AddTaskDialog(settings, { showDialog = false }) { n, e, d, t -> onAddTask(Task(name = n, emoji = e, day = d, time = t)) }
+    if (showAddTaskDialog) AddTaskDialog(settings, { showAddTaskDialog = false }) { n, e, d, t -> onAddTask(Task(name = n, emoji = e, day = d, time = t)) }
+}
+
+@Composable
+fun UserLevelDisplay(user: com.angelina.daytask.data.UserEntity?) {
+    if (user == null) return
+    val progress = user.xp.toFloat() / 100f
+    val animatedProgress by animateFloatAsState(targetValue = progress, animationSpec = tween(1000), label = "xp")
+
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
+            Text(
+                text = "Nivel ${user.level}", 
+                style = MaterialTheme.typography.titleSmall, 
+                fontWeight = FontWeight.Bold,
+                color = PrimaryPurple
+            )
+            Text(
+                text = "${user.xp} / 100 XP", 
+                style = MaterialTheme.typography.labelSmall, 
+                color = TextGray
+            )
+        }
+        Spacer(modifier = Modifier.height(6.dp))
+        LinearProgressIndicator(
+            progress = { animatedProgress },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(8.dp)
+                .clip(RoundedCornerShape(4.dp)),
+            color = PrimaryPurple,
+            trackColor = PrimaryPurple.copy(alpha = 0.1f)
+        )
+    }
 }
 
 @Composable
@@ -645,7 +699,7 @@ fun AdventureProgressMap(tasks: List<Task>, settings: UserSettings, modifier: Mo
     val totalCount = tasks.size
     val progressFraction = if (totalCount > 0) completedCount.toFloat() / totalCount else 0f
     val density = LocalDensity.current.density
-    val isDark = settings.darkTheme ?: isSystemInDarkTheme()
+    val isDark = settings.darkTheme
     
     val infiniteTransition = rememberInfiniteTransition(label = "mapAnimation")
     val cloudOffset by infiniteTransition.animateFloat(
@@ -669,19 +723,21 @@ fun AdventureProgressMap(tasks: List<Task>, settings: UserSettings, modifier: Mo
     )
 
     val animatedProgress by animateFloatAsState(progressFraction, tween(1200), label = "p")
+    
     val skyColors = when (settings.landscape) {
         LandscapeType.MOUNTAIN -> if (isDark) listOf(Color(0xFF0F0C29), Color(0xFF302B63)) else listOf(Color(0xFF87CEEB), Color(0xFFE0F7FA))
         LandscapeType.FOREST -> if (isDark) listOf(Color(0xFF0D1F0D), Color(0xFF1B5E20)) else listOf(Color(0xFFB2EBF2), Color(0xFFE1F5FE))
         LandscapeType.DESERT -> if (isDark) listOf(Color(0xFF2C1608), Color(0xFF5D4037)) else listOf(Color(0xFFFFB74D), Color(0xFFFFF3E0))
     }
+    
     val elementColor = when (settings.landscape) {
         LandscapeType.MOUNTAIN -> if (isDark) Color(0xFF455A64) else Color(0xFF90A4AE)
         LandscapeType.FOREST -> if (isDark) Color(0xFF1B5E20) else Color(0xFF2E7D32)
         LandscapeType.DESERT -> if (isDark) Color(0xFF5D4037) else Color(0xFFD4A373)
     }
 
-    Column(modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f), RoundedCornerShape(24.dp)).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))) {
-        BoxWithConstraints(Modifier.fillMaxWidth().height(180.dp)) {
+    Column(modifier = modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f), RoundedCornerShape(24.dp)).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))) {
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth().height(180.dp)) {
             val width = this.constraints.maxWidth.toFloat()
             val height = this.constraints.maxHeight.toFloat()
             val adventurePath = Path().apply { moveTo(width * 0.1f, height * 0.8f); cubicTo(width * 0.3f, height * 0.6f, width * 0.5f, height * 0.9f, width * 0.9f, height * 0.7f) }
@@ -759,7 +815,7 @@ fun AdventureProgressMap(tasks: List<Task>, settings: UserSettings, modifier: Mo
                         }, elementColor)
                     }
                 }
-                drawPath(adventurePath, Color.White.copy(alpha = 0.3f), style = Stroke(6.dp.toPx(), cap = StrokeCap.Round))
+                drawPath(adventurePath, Color.White.copy(alpha = 0.4f), style = Stroke(6.dp.toPx(), cap = StrokeCap.Round))
                 for (i in 0..totalCount) {
                     val f = if (totalCount > 0) i.toFloat() / totalCount else 0f
                     drawCircle(if (i <= completedCount) GoldReward else Color.White.copy(alpha = 0.3f), radius = 6.dp.toPx(), center = pathMeasure.getPosition(pathMeasure.length * f))
@@ -777,8 +833,7 @@ fun AdventureProgressMap(tasks: List<Task>, settings: UserSettings, modifier: Mo
         ) {
             Column {
                 Text(if (settings.language == Language.ES) "Progreso de Aventura" else "Adventure Progress", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                val mapPhrases = if (settings.language == Language.ES) listOf("¡Tu aventura comienza!", "¡Sigue así!", "¡Meta alcanzada!") else listOf("Adventure starts!", "Keep it up!", "Goal reached!")
-                val phrase = when { completedCount == 0 -> mapPhrases[0]; completedCount == totalCount && totalCount > 0 -> mapPhrases.last(); else -> mapPhrases[1] }
+                val phrase = if (completedCount == totalCount && totalCount > 0) (if (settings.language == Language.ES) "¡Cumbre alcanzada!" else "Summit reached!") else (if (settings.language == Language.ES) "Cada paso cuenta..." else "Every step counts...")
                 Text(phrase, style = MaterialTheme.typography.labelSmall, color = PrimaryPurple)
             }
             Text("${(progressFraction * 100).toInt()}%", color = PrimaryPurple, fontWeight = FontWeight.Bold)
@@ -789,14 +844,13 @@ fun AdventureProgressMap(tasks: List<Task>, settings: UserSettings, modifier: Mo
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(settings: UserSettings, onSettingsChange: (UserSettings) -> Unit, onBack: () -> Unit) {
-    val isDark = settings.darkTheme ?: isSystemInDarkTheme()
+    val isDark = settings.darkTheme
     Scaffold(containerColor = Color.Transparent, topBar = { CenterAlignedTopAppBar(title = { Text(if (settings.language == Language.ES) "Ajustes" else "Settings", fontWeight = FontWeight.Bold) }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") } }, colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)) }) { p ->
         Column(Modifier.fillMaxSize().padding(p).padding(24.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
             SettingsSection("Tema", isDark) {
-                Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
-                    ThemeOption("Claro", settings.darkTheme == false) { onSettingsChange(settings.copy(darkTheme = false)) }
-                    ThemeOption("Oscuro", settings.darkTheme == true) { onSettingsChange(settings.copy(darkTheme = true)) }
-                    ThemeOption("Sistema", settings.darkTheme == null) { onSettingsChange(settings.copy(darkTheme = null)) }
+                Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(16.dp)) {
+                    ThemeOption("Claro", !settings.darkTheme) { onSettingsChange(settings.copy(darkTheme = false)) }
+                    ThemeOption("Oscuro", settings.darkTheme) { onSettingsChange(settings.copy(darkTheme = true)) }
                 }
             }
             SettingsSection("Paisaje", isDark) {
@@ -807,7 +861,7 @@ fun SettingsScreen(settings: UserSettings, onSettingsChange: (UserSettings) -> U
                 }
             }
             SettingsSection("Seguridad", isDark) {
-                    Row(
+                Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically

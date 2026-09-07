@@ -9,7 +9,7 @@ enum class Language {
 }
 
 data class UserSettings(
-    val darkTheme: Boolean? = null, // null = system
+    val darkTheme: Boolean = false,
     val landscape: LandscapeType = LandscapeType.MOUNTAIN,
     val language: Language = Language.ES,
     val isBiometricEnabled: Boolean = false

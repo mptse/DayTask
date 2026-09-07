@@ -31,6 +31,9 @@ class MainViewModel(
         entities.map { it.toModel() }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    var currentUser by mutableStateOf<UserEntity?>(null)
+        private set
+
     var userSettings by mutableStateOf(UserSettings())
         private set
 
@@ -48,12 +51,36 @@ class MainViewModel(
 
     fun updateTask(task: Task) {
         viewModelScope.launch {
+            // Check if it was just completed to add XP
+            val oldTask = tasks.value.find { it.id == task.id }
+            if (task.completed && oldTask?.completed == false) {
+                gainXP(task.xp)
+            }
+            
             taskDao.updateTask(task.toEntity())
             if (!task.completed) {
                 NotificationHelper.scheduleTaskNotification(getApplication(), task)
             } else {
                 NotificationHelper.cancelTaskNotification(getApplication(), task)
             }
+        }
+    }
+
+    private fun gainXP(amount: Int) {
+        val user = currentUser ?: return
+        var newXP = user.xp + amount
+        var newLevel = user.level
+        
+        // Level up logic (100 XP per level)
+        while (newXP >= 100) {
+            newXP -= 100
+            newLevel++
+        }
+        
+        val updatedUser = user.copy(xp = newXP, level = newLevel)
+        currentUser = updatedUser
+        viewModelScope.launch {
+            userDao.updateUser(updatedUser)
         }
     }
 
@@ -87,7 +114,9 @@ class MainViewModel(
     }
 
     suspend fun loginUser(email: String, pass: String): UserEntity? {
-        return userDao.getUserByEmail(email)?.takeIf { it.password == pass }
+        val user = userDao.getUserByEmail(email)?.takeIf { it.password == pass }
+        currentUser = user
+        return user
     }
 
     class Factory(
