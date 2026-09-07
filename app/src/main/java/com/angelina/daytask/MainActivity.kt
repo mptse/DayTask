@@ -286,6 +286,14 @@ fun HomeScreen(tasks: List<Task>, settings: UserSettings, onNavigateToSettings: 
     var showMsg by remember { mutableStateOf(false) }
     var lastPhrase by remember { mutableStateOf("") }
     var showDialog by remember { mutableStateOf(false) }
+
+    val currentHour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+    val greeting = when {
+        currentHour in 5..11 -> if (settings.language == Language.ES) "☀️ Buenos días" else "☀️ Good morning"
+        currentHour in 12..18 -> if (settings.language == Language.ES) "🌤️ Buenas tardes" else "🌤️ Good afternoon"
+        else -> if (settings.language == Language.ES) "🌙 Buenas noches" else "🌙 Good evening"
+    }
+
     LaunchedEffect(showMsg) { if (showMsg) { delay(2500); showMsg = false } }
     Scaffold(containerColor = Color.Transparent, floatingActionButton = { FloatingActionButton({ showDialog = true }, containerColor = PrimaryPurple, contentColor = Color.White, shape = RoundedCornerShape(18.dp)) { Text("+", style = MaterialTheme.typography.headlineMedium) } }) { p ->
         Box(Modifier.fillMaxSize()) {
@@ -293,7 +301,7 @@ fun HomeScreen(tasks: List<Task>, settings: UserSettings, onNavigateToSettings: 
                 item {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Column {
-                            Text(if (settings.language == Language.ES) "☀️ Buenos días" else "☀️ Good morning", style = MaterialTheme.typography.bodyLarge, color = TextGray)
+                            Text(greeting, style = MaterialTheme.typography.bodyLarge, color = TextGray)
                             Text(if (settings.language == Language.ES) "Mi día" else "My day", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
                         }
                         IconButton(onNavigateToSettings) { Icon(Icons.Default.Settings, null) }
@@ -345,12 +353,69 @@ fun AddTaskDialog(settings: UserSettings, onDismiss: () -> Unit, onConfirm: (Str
     var e by remember { mutableStateOf("🎯") }
     var d by remember { mutableStateOf(java.text.SimpleDateFormat("dd MMM, yyyy", Locale.getDefault()).format(Date())) }
     var t by remember { mutableStateOf(java.text.SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())) }
+    
+    val context = LocalContext.current
+    val calendar = Calendar.getInstance()
+
+    val datePickerDialog = android.app.DatePickerDialog(
+        context,
+        { _, year, month, dayOfMonth ->
+            val sel = Calendar.getInstance()
+            sel.set(year, month, dayOfMonth)
+            d = java.text.SimpleDateFormat("dd MMM, yyyy", Locale.getDefault()).format(sel.time)
+        },
+        calendar.get(Calendar.YEAR),
+        calendar.get(Calendar.MONTH),
+        calendar.get(Calendar.DAY_OF_MONTH)
+    )
+
+    val timePickerDialog = android.app.TimePickerDialog(
+        context,
+        { _, hour, min ->
+            t = String.format(Locale.getDefault(), "%02d:%02d", hour, min)
+        },
+        calendar.get(Calendar.HOUR_OF_DAY),
+        calendar.get(Calendar.MINUTE),
+        true
+    )
+
     AlertDialog(onDismissRequest = onDismiss, title = { Text(if (settings.language == Language.ES) "Nueva Actividad" else "New Activity", fontWeight = FontWeight.Bold) }, text = {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            OutlinedTextField(n, { n = it }, label = { Text("Nombre") }, shape = RoundedCornerShape(12.dp))
+            OutlinedTextField(n, { n = it }, label = { Text("Nombre") }, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth())
+            
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(d, { d = it }, Modifier.weight(1f), label = { Text("Día") })
-                OutlinedTextField(t, { t = it }, Modifier.weight(0.7f), label = { Text("Hora") })
+                Box(Modifier.weight(1f).clickable { datePickerDialog.show() }) {
+                    OutlinedTextField(
+                        value = d, 
+                        onValueChange = {}, 
+                        label = { Text("Día") }, 
+                        readOnly = true, 
+                        enabled = false,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            disabledTextColor = MaterialTheme.colorScheme.onSurface,
+                            disabledBorderColor = MaterialTheme.colorScheme.outline,
+                            disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            disabledPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    )
+                }
+                Box(Modifier.weight(0.7f).clickable { timePickerDialog.show() }) {
+                    OutlinedTextField(
+                        value = t, 
+                        onValueChange = {}, 
+                        label = { Text("Hora") }, 
+                        readOnly = true, 
+                        enabled = false,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            disabledTextColor = MaterialTheme.colorScheme.onSurface,
+                            disabledBorderColor = MaterialTheme.colorScheme.outline,
+                            disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            disabledPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    )
+                }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf("🎯", "📚", "🍳", "🏃", "💡").forEach { emoji ->
@@ -447,21 +512,110 @@ fun AddNoteDialog(settings: UserSettings, onDismiss: () -> Unit, onConfirm: (Str
     var title by remember { mutableStateOf("") }
     var content by remember { mutableStateOf("") }
     var category by remember { mutableStateOf(NoteCategory.PERSONAL) }
-    AlertDialog(onDismissRequest = onDismiss, title = { Text("Nueva Nota", fontWeight = FontWeight.Bold) }, text = {
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            OutlinedTextField(title, { title = it }, label = { Text("Título") }, shape = RoundedCornerShape(12.dp))
-            OutlinedTextField(content, { content = it }, Modifier.height(120.dp), label = { Text("Contenido") }, shape = RoundedCornerShape(12.dp))
-            Text("Categoría:", style = MaterialTheme.typography.labelMedium)
-            LazyRow(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(NoteCategory.entries) { cat ->
-                    FilterChip(category == cat, { category = cat }, { Text(cat.name) })
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(28.dp),
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.Edit, 
+                    contentDescription = null, 
+                    tint = PrimaryPurple, 
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(Modifier.width(12.dp))
+                Text(
+                    text = if (settings.language == Language.ES) "Nueva Nota" else "New Note",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text(if (settings.language == Language.ES) "Título" else "Title") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    singleLine = true
+                )
+                
+                OutlinedTextField(
+                    value = content,
+                    onValueChange = { content = it },
+                    label = { Text(if (settings.language == Language.ES) "Contenido" else "Content") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(150.dp),
+                    shape = RoundedCornerShape(16.dp)
+                )
+
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = if (settings.language == Language.ES) "Categoría" else "Category",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = PrimaryPurple
+                    )
+                    
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        items(NoteCategory.entries) { cat ->
+                            val isSelected = category == cat
+                            val catColor = when(cat) {
+                                NoteCategory.URGENT -> Color(0xFFFF5252)
+                                NoteCategory.WORK -> Color(0xFF448AFF)
+                                NoteCategory.IDEAS -> Color(0xFFFFD740)
+                                NoteCategory.PERSONAL -> PrimaryPurple
+                            }
+                            
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = { category = cat },
+                                label = { Text(cat.name) },
+                                shape = RoundedCornerShape(12.dp),
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = catColor,
+                                    selectedLabelColor = Color.White,
+                                    labelColor = catColor.copy(alpha = 0.7f)
+                                ),
+                                border = FilterChipDefaults.filterChipBorder(
+                                    enabled = true,
+                                    selected = isSelected,
+                                    borderColor = catColor.copy(alpha = 0.5f),
+                                    selectedBorderColor = Color.Transparent,
+                                    borderWidth = 1.dp
+                                )
+                            )
+                        }
+                    }
                 }
             }
+        },
+        confirmButton = {
+            Button(
+                onClick = { if (title.isNotBlank()) onConfirm(title, content, category) },
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple)
+            ) {
+                Text(
+                    text = if (settings.language == Language.ES) "Guardar" else "Save", 
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 8.dp)
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(if (settings.language == Language.ES) "Cancelar" else "Cancel")
+            }
         }
-    }, confirmButton = { Button({ if (title.isNotBlank()) onConfirm(title, content, category) }) { Text("Guardar") } })
+    )
 }
 
 @Composable
