@@ -1,6 +1,7 @@
 package com.angelina.daytask.ui.viewmodel
 
 import android.app.Application
+import android.content.Context
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -24,6 +25,8 @@ class MainViewModel(
     private val userDao: UserDao
 ) : AndroidViewModel(application) {
 
+    private val prefs = application.getSharedPreferences("daytask_prefs", Context.MODE_PRIVATE)
+
     val tasks: StateFlow<List<Task>> = taskDao.getAllTasks().map { entities ->
         entities.map { it.toModel() }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -41,6 +44,19 @@ class MainViewModel(
 
     fun updateSettings(settings: UserSettings) {
         userSettings = settings
+        val user = currentUser ?: return
+        val updatedUser = user.copy(
+            darkTheme = settings.darkTheme,
+            landscape = settings.landscape,
+            language = settings.language,
+            isAppLockEnabled = settings.isAppLockEnabled,
+            secretGestureCode = settings.secretGestureCode,
+            avatarEmoji = settings.avatarEmoji
+        )
+        currentUser = updatedUser
+        viewModelScope.launch {
+            userDao.updateUser(updatedUser)
+        }
     }
 
     fun addTask(task: Task) {
@@ -54,9 +70,12 @@ class MainViewModel(
     fun updateTask(task: Task) {
         viewModelScope.launch {
             val oldTask = tasks.value.find { it.id == task.id }
+            
             if (task.completed && oldTask?.completed == false) {
                 gainXP(task.xp)
                 updateStreak()
+            } else if (!task.completed && oldTask?.completed == true) {
+                loseXP(task.xp)
             }
             
             taskDao.updateTask(task.toEntity())
@@ -76,6 +95,27 @@ class MainViewModel(
         while (newXP >= 100) {
             newXP -= 100
             newLevel++
+        }
+        
+        val updatedUser = user.copy(xp = newXP, level = newLevel)
+        currentUser = updatedUser
+        viewModelScope.launch {
+            userDao.updateUser(updatedUser)
+        }
+    }
+
+    private fun loseXP(amount: Int) {
+        val user = currentUser ?: return
+        var newXP = user.xp - amount
+        var newLevel = user.level
+        
+        if (newXP < 0) {
+            if (newLevel > 1) {
+                newLevel--
+                newXP = 100 + newXP
+            } else {
+                newXP = 0
+            }
         }
         
         val updatedUser = user.copy(xp = newXP, level = newLevel)
@@ -151,8 +191,39 @@ class MainViewModel(
 
     suspend fun loginUser(email: String, pass: String): UserEntity? {
         val user = userDao.getUserByEmail(email)?.takeIf { it.password == pass }
-        currentUser = user
+        if (user != null) {
+            currentUser = user
+            applyUserSettings(user)
+            prefs.edit().putString("last_user_email", email).apply()
+        }
         return user
+    }
+
+    suspend fun checkSavedSession(): UserEntity? {
+        val email = prefs.getString("last_user_email", null) ?: return null
+        val user = userDao.getUserByEmail(email)
+        if (user != null) {
+            currentUser = user
+            applyUserSettings(user)
+        }
+        return user
+    }
+
+    fun logout() {
+        currentUser = null
+        userSettings = UserSettings()
+        prefs.edit().remove("last_user_email").apply()
+    }
+
+    private fun applyUserSettings(user: UserEntity) {
+        userSettings = UserSettings(
+            darkTheme = user.darkTheme,
+            landscape = user.landscape,
+            language = user.language,
+            isAppLockEnabled = user.isAppLockEnabled,
+            secretGestureCode = user.secretGestureCode,
+            avatarEmoji = user.avatarEmoji
+        )
     }
 
     class Factory(

@@ -9,11 +9,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.*
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -31,7 +28,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathMeasure
@@ -84,7 +83,6 @@ class MainActivity : FragmentActivity() {
 @Composable
 fun DayTaskApp(viewModel: MainViewModel) {
     val context = LocalContext.current
-    val activity = context as FragmentActivity
     val scope = rememberCoroutineScope()
     var screen by remember { mutableStateOf("splash") }
     var currentTab by remember { mutableStateOf("home") }
@@ -98,15 +96,8 @@ fun DayTaskApp(viewModel: MainViewModel) {
     val isDark = settings.darkTheme
 
     fun handleLogin() {
-        if (settings.isBiometricEnabled) {
-            authenticateWithBiometrics(
-                activity = activity,
-                onSuccess = { 
-                    isAuthenticated = true
-                    screen = "home" 
-                },
-                onError = { /* Allow manual entry */ }
-            )
+        if (settings.isAppLockEnabled && settings.secretGestureCode.isNotEmpty()) {
+            screen = "gesture_lock"
         } else {
             isAuthenticated = true
             screen = "home"
@@ -197,6 +188,13 @@ fun DayTaskApp(viewModel: MainViewModel) {
                             settings = settings,
                             onSettingsChange = { viewModel.updateSettings(it) },
                             onBack = { screen = currentTab }
+                        )
+                    }
+                    "gesture_lock" -> AppBackground(isDark = isDark) {
+                        GestureLockScreen(
+                            correctCode = settings.secretGestureCode,
+                            onSuccess = { isAuthenticated = true; screen = "home" },
+                            settings = settings
                         )
                     }
                 }
@@ -1004,7 +1002,14 @@ fun SettingsScreen(
 ) {
     val isDark = settings.darkTheme
     Scaffold(containerColor = Color.Transparent, topBar = { CenterAlignedTopAppBar(title = { Text(if (settings.language == Language.ES) "Ajustes" else "Settings", fontWeight = FontWeight.Bold) }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") } }, colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)) }) { p ->
-        Column(Modifier.fillMaxSize().padding(p).padding(24.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(p)
+                .verticalScroll(rememberScrollState())
+                .padding(24.dp), 
+            verticalArrangement = Arrangement.spacedBy(20.dp)
+        ) {
             SettingsSection("Tema", isDark) {
                 Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(16.dp)) {
                     ThemeOption("Claro", !settings.darkTheme) { onSettingsChange(settings.copy(darkTheme = false)) }
@@ -1051,13 +1056,43 @@ fun SettingsScreen(
                 }
             }
             SettingsSection("Seguridad", isDark) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Bloqueo Biométrico")
-                    Switch(settings.isBiometricEnabled, { onSettingsChange(settings.copy(isBiometricEnabled = it)) })
+                var showSetup by remember { mutableStateOf(false) }
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(if (settings.language == Language.ES) "Gesto Secreto" else "Secret Gesture")
+                        Switch(
+                            checked = settings.isAppLockEnabled, 
+                            onCheckedChange = { 
+                                if (it && settings.secretGestureCode.isEmpty()) {
+                                    showSetup = true
+                                }
+                                onSettingsChange(settings.copy(isAppLockEnabled = it)) 
+                            }
+                        )
+                    }
+                    if (settings.isAppLockEnabled) {
+                        Button(
+                            onClick = { showSetup = true },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple.copy(alpha = 0.1f), contentColor = PrimaryPurple)
+                        ) {
+                            Text(if (settings.secretGestureCode.isEmpty()) "Configurar Gesto" else "Cambiar Gesto")
+                        }
+                    }
+                }
+                if (showSetup) {
+                    GestureSetupDialog(
+                        onDismiss = { showSetup = false },
+                        onConfirm = { code ->
+                            onSettingsChange(settings.copy(secretGestureCode = code))
+                            showSetup = false
+                        }
+                    )
                 }
             }
         }
@@ -1101,12 +1136,148 @@ fun LanguageOption(label: String, selected: Boolean, onClick: () -> Unit) {
     ThemeOption(label, selected, onClick)
 }
 
-fun authenticateWithBiometrics(activity: FragmentActivity, onSuccess: () -> Unit, onError: (String) -> Unit) {
-    val executor = ContextCompat.getMainExecutor(activity)
-    val biometricPrompt = BiometricPrompt(activity, executor, object : BiometricPrompt.AuthenticationCallback() {
-        override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) { onSuccess() }
-        override fun onAuthenticationError(errorCode: Int, errString: CharSequence) { onError(errString.toString()) }
-    })
-    val promptInfo = BiometricPrompt.PromptInfo.Builder().setTitle("Acceso Seguro").setSubtitle("Usa tu huella").setNegativeButtonText("Cancelar").build()
-    biometricPrompt.authenticate(promptInfo)
+@Composable
+fun GestureLockScreen(correctCode: String, onSuccess: () -> Unit, settings: UserSettings) {
+    var error by remember { mutableStateOf("") }
+    
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(Icons.Default.Lock, null, tint = PrimaryPurple, modifier = Modifier.size(64.dp))
+        Spacer(Modifier.height(24.dp))
+        Text(
+            text = if (settings.language == Language.ES) "Dibuja tu Gesto Secreto" else "Draw your Secret Gesture",
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold
+        )
+        if (error.isNotEmpty()) {
+            Text(error, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
+        }
+        
+        Spacer(Modifier.height(48.dp))
+        
+        PatternLockView(
+            onPatternComplete = { pattern ->
+                if (pattern == correctCode) {
+                    onSuccess()
+                } else {
+                    error = if (settings.language == Language.ES) "Gesto incorrecto" else "Wrong gesture"
+                }
+            }
+        )
+    }
+}
+
+@Composable
+fun GestureSetupDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
+    var pattern1 by remember { mutableStateOf("") }
+    var step by remember { mutableStateOf(1) }
+    
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { 
+            Text(if (step == 1) "Crea tu Gesto" else "Confirma tu Gesto", fontWeight = FontWeight.Bold) 
+        },
+        text = {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(if (step == 1) "Une los puntos para crear tu patrón" else "Dibuja el mismo patrón de nuevo")
+                Spacer(Modifier.height(24.dp))
+                PatternLockView(
+                    onPatternComplete = { pattern ->
+                        if (step == 1) {
+                            pattern1 = pattern
+                            step = 2
+                        } else {
+                            if (pattern == pattern1) {
+                                onConfirm(pattern)
+                            } else {
+                                step = 1 // Reset
+                            }
+                        }
+                    }
+                )
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancelar") }
+        }
+    )
+}
+
+@Composable
+fun PatternLockView(onPatternComplete: (String) -> Unit) {
+    var currentPath by remember { mutableStateOf<List<Int>>(emptyList()) }
+    var touchPos by remember { mutableStateOf<Offset?>(null) }
+    val density = LocalDensity.current
+    
+    val sizePx = with(density) { 280.dp.toPx() }
+    val step = sizePx / 4
+    
+    val dotOffsets = remember(sizePx) {
+        (0..2).flatMap { y ->
+            (0..2).map { x ->
+                Offset((x + 1) * step, (y + 1) * step)
+            }
+        }
+    }
+
+    Canvas(
+        modifier = Modifier
+            .size(280.dp)
+            .pointerInput(dotOffsets) {
+                detectDragGestures(
+                    onDragStart = { offset ->
+                        currentPath = emptyList()
+                        touchPos = offset
+                    },
+                    onDrag = { change, _ ->
+                        touchPos = change.position
+                        dotOffsets.forEachIndexed { index, dotOffset ->
+                            val dist = (change.position - dotOffset).getDistance()
+                            if (dist < 40f && index !in currentPath) {
+                                currentPath = currentPath + index
+                            }
+                        }
+                    },
+                    onDragEnd = {
+                        if (currentPath.size >= 3) {
+                            onPatternComplete(currentPath.joinToString(""))
+                        }
+                        currentPath = emptyList()
+                        touchPos = null
+                    }
+                )
+            }
+    ) {
+        // Draw Dots
+        dotOffsets.forEachIndexed { index, offset ->
+            val isSelected = index in currentPath
+            drawCircle(
+                color = if (isSelected) PrimaryPurple else Color.Gray.copy(alpha = 0.3f),
+                radius = if (isSelected) 12.dp.toPx() else 8.dp.toPx(),
+                center = offset
+            )
+        }
+        
+        // Draw Path
+        if (currentPath.isNotEmpty()) {
+            val path = Path().apply {
+                val start = dotOffsets[currentPath[0]]
+                moveTo(start.x, start.y)
+                for (i in 1 until currentPath.size) {
+                    val end = dotOffsets[currentPath[i]]
+                    lineTo(end.x, end.y)
+                }
+                touchPos?.let { lineTo(it.x, it.y) }
+            }
+            drawPath(
+                path = path,
+                color = PrimaryPurple.copy(alpha = 0.5f),
+                style = Stroke(width = 8.dp.toPx(), cap = StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round)
+            )
+        }
+    }
 }
