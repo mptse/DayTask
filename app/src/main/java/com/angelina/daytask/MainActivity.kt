@@ -2,7 +2,6 @@ package com.angelina.daytask
 
 import android.os.Bundle
 import androidx.activity.compose.setContent
-import androidx.biometric.BiometricPrompt
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
 import androidx.compose.animation.fadeIn
@@ -30,13 +29,13 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathMeasure
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
@@ -96,18 +95,19 @@ fun DayTaskApp(viewModel: MainViewModel) {
     val isDark = settings.darkTheme
 
     fun handleLogin() {
-        if (settings.isAppLockEnabled && settings.secretGestureCode.isNotEmpty()) {
-            screen = "gesture_lock"
-        } else {
-            isAuthenticated = true
-            screen = "home"
-        }
+        isAuthenticated = true
+        screen = "home"
     }
 
     DayTaskTheme(darkTheme = isDark) {
         LaunchedEffect(Unit) {
-            delay(1800)
-            screen = "login"
+            val savedUser = viewModel.checkSavedSession()
+            delay(1500)
+            if (savedUser != null) {
+                handleLogin()
+            } else {
+                screen = "login"
+            }
         }
 
         Scaffold(
@@ -187,14 +187,12 @@ fun DayTaskApp(viewModel: MainViewModel) {
                             user = viewModel.currentUser,
                             settings = settings,
                             onSettingsChange = { viewModel.updateSettings(it) },
-                            onBack = { screen = currentTab }
-                        )
-                    }
-                    "gesture_lock" -> AppBackground(isDark = isDark) {
-                        GestureLockScreen(
-                            correctCode = settings.secretGestureCode,
-                            onSuccess = { isAuthenticated = true; screen = "home" },
-                            settings = settings
+                            onBack = { screen = currentTab },
+                            onLogout = {
+                                viewModel.logout()
+                                isAuthenticated = false
+                                screen = "login"
+                            }
                         )
                     }
                 }
@@ -747,7 +745,7 @@ fun AddNoteDialog(settings: UserSettings, onDismiss: () -> Unit, onConfirm: (Str
                     shape = RoundedCornerShape(16.dp),
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-                    keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Down) })
+                    keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) })
                 )
                 
                 OutlinedTextField(
@@ -984,7 +982,8 @@ fun AdventureProgressMap(tasks: List<Task>, settings: UserSettings, modifier: Mo
         ) {
             Column {
                 Text(if (settings.language == Language.ES) "Progreso de Aventura" else "Adventure Progress", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                val phrase = if (completedCount == totalCount && totalCount > 0) (if (settings.language == Language.ES) "¡Cumbre alcanzada!" else "Summit reached!") else (if (settings.language == Language.ES) "Cada paso cuenta..." else "Every step counts...")
+                val mapPhrases = if (settings.language == Language.ES) listOf("¡Tu aventura comienza!", "¡Sigue así!", "¡Meta alcanzada!") else listOf("Adventure starts!", "Keep it up!", "Goal reached!")
+                val phrase = when { completedCount == 0 -> mapPhrases[0]; completedCount == totalCount && totalCount > 0 -> mapPhrases.last(); else -> mapPhrases[1] }
                 Text(phrase, style = MaterialTheme.typography.labelSmall, color = PrimaryPurple)
             }
             Text("${(progressFraction * 100).toInt()}%", color = PrimaryPurple, fontWeight = FontWeight.Bold)
@@ -998,7 +997,8 @@ fun SettingsScreen(
     user: com.angelina.daytask.data.UserEntity?,
     settings: UserSettings, 
     onSettingsChange: (UserSettings) -> Unit, 
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onLogout: () -> Unit
 ) {
     val isDark = settings.darkTheme
     Scaffold(containerColor = Color.Transparent, topBar = { CenterAlignedTopAppBar(title = { Text(if (settings.language == Language.ES) "Ajustes" else "Settings", fontWeight = FontWeight.Bold) }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") } }, colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)) }) { p ->
@@ -1055,45 +1055,18 @@ fun SettingsScreen(
                     }
                 }
             }
-            SettingsSection("Seguridad", isDark) {
-                var showSetup by remember { mutableStateOf(false) }
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(if (settings.language == Language.ES) "Gesto Secreto" else "Secret Gesture")
-                        Switch(
-                            checked = settings.isAppLockEnabled, 
-                            onCheckedChange = { 
-                                if (it && settings.secretGestureCode.isEmpty()) {
-                                    showSetup = true
-                                }
-                                onSettingsChange(settings.copy(isAppLockEnabled = it)) 
-                            }
-                        )
-                    }
-                    if (settings.isAppLockEnabled) {
-                        Button(
-                            onClick = { showSetup = true },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple.copy(alpha = 0.1f), contentColor = PrimaryPurple)
-                        ) {
-                            Text(if (settings.secretGestureCode.isEmpty()) "Configurar Gesto" else "Cambiar Gesto")
-                        }
-                    }
-                }
-                if (showSetup) {
-                    GestureSetupDialog(
-                        onDismiss = { showSetup = false },
-                        onConfirm = { code ->
-                            onSettingsChange(settings.copy(secretGestureCode = code))
-                            showSetup = false
-                        }
-                    )
-                }
+            
+            Spacer(modifier = Modifier.height(10.dp))
+            
+            Button(
+                onClick = onLogout,
+                modifier = Modifier.fillMaxWidth().height(50.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.error)
+            ) {
+                Icon(Icons.Default.ExitToApp, null)
+                Spacer(Modifier.width(8.dp))
+                Text(if (settings.language == Language.ES) "Cerrar Sesión" else "Logout", fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -1134,77 +1107,6 @@ fun LandscapeOption(label: String, selected: Boolean, locked: Boolean = false, o
 @Composable
 fun LanguageOption(label: String, selected: Boolean, onClick: () -> Unit) {
     ThemeOption(label, selected, onClick)
-}
-
-@Composable
-fun GestureLockScreen(correctCode: String, onSuccess: () -> Unit, settings: UserSettings) {
-    var error by remember { mutableStateOf("") }
-    
-    Column(
-        modifier = Modifier.fillMaxSize(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Icon(Icons.Default.Lock, null, tint = PrimaryPurple, modifier = Modifier.size(64.dp))
-        Spacer(Modifier.height(24.dp))
-        Text(
-            text = if (settings.language == Language.ES) "Dibuja tu Gesto Secreto" else "Draw your Secret Gesture",
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold
-        )
-        if (error.isNotEmpty()) {
-            Text(error, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
-        }
-        
-        Spacer(Modifier.height(48.dp))
-        
-        PatternLockView(
-            onPatternComplete = { pattern ->
-                if (pattern == correctCode) {
-                    onSuccess()
-                } else {
-                    error = if (settings.language == Language.ES) "Gesto incorrecto" else "Wrong gesture"
-                }
-            }
-        )
-    }
-}
-
-@Composable
-fun GestureSetupDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
-    var pattern1 by remember { mutableStateOf("") }
-    var step by remember { mutableStateOf(1) }
-    
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { 
-            Text(if (step == 1) "Crea tu Gesto" else "Confirma tu Gesto", fontWeight = FontWeight.Bold) 
-        },
-        text = {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(if (step == 1) "Une los puntos para crear tu patrón" else "Dibuja el mismo patrón de nuevo")
-                Spacer(Modifier.height(24.dp))
-                PatternLockView(
-                    onPatternComplete = { pattern ->
-                        if (step == 1) {
-                            pattern1 = pattern
-                            step = 2
-                        } else {
-                            if (pattern == pattern1) {
-                                onConfirm(pattern)
-                            } else {
-                                step = 1 // Reset
-                            }
-                        }
-                    }
-                )
-            }
-        },
-        confirmButton = {},
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancelar") }
-        }
-    )
 }
 
 @Composable

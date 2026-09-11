@@ -19,7 +19,5 @@ data class UserEntity(
     val darkTheme: Boolean = false,
     val landscape: LandscapeType = LandscapeType.MOUNTAIN,
     val language: Language = Language.ES,
-    val isAppLockEnabled: Boolean = false,
-    val secretGestureCode: String = "",
     val avatarEmoji: String = "🏃"
 )

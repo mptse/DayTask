@@ -27,7 +27,7 @@ class Converters {
     fun toLanguage(value: String) = Language.valueOf(value)
 }
 
-@Database(entities = [TaskEntity::class, NoteEntity::class, UserEntity::class], version = 7, exportSchema = false)
+@Database(entities = [TaskEntity::class, NoteEntity::class, UserEntity::class], version = 8, exportSchema = false)
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun taskDao(): TaskDao

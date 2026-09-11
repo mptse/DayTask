@@ -49,8 +49,6 @@ class MainViewModel(
             darkTheme = settings.darkTheme,
             landscape = settings.landscape,
             language = settings.language,
-            isAppLockEnabled = settings.isAppLockEnabled,
-            secretGestureCode = settings.secretGestureCode,
             avatarEmoji = settings.avatarEmoji
         )
         currentUser = updatedUser
@@ -220,8 +218,6 @@ class MainViewModel(
             darkTheme = user.darkTheme,
             landscape = user.landscape,
             language = user.language,
-            isAppLockEnabled = user.isAppLockEnabled,
-            secretGestureCode = user.secretGestureCode,
             avatarEmoji = user.avatarEmoji
         )
     }
