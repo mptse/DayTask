@@ -16,7 +16,7 @@ class Converters {
     fun toNoteCategory(value: String) = NoteCategory.valueOf(value)
 }
 
-@Database(entities = [TaskEntity::class, NoteEntity::class, UserEntity::class], version = 4, exportSchema = false)
+@Database(entities = [TaskEntity::class, NoteEntity::class, UserEntity::class], version = 6, exportSchema = false)
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun taskDao(): TaskDao

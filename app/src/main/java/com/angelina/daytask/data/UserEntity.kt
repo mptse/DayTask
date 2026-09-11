@@ -9,5 +9,7 @@ data class UserEntity(
     val password: String,
     val name: String,
     val xp: Int = 0,
-    val level: Int = 1
+    val level: Int = 1,
+    val streakCount: Int = 0,
+    val lastCompletionDate: Long = 0
 )

@@ -20,6 +20,8 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -28,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -37,7 +40,10 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -181,11 +187,13 @@ fun DayTaskApp(viewModel: MainViewModel) {
                             settings = settings,
                             onNavigateToSettings = { screen = "settings" },
                             onAddNote = { viewModel.addNote(it) },
-                            onDeleteNote = { viewModel.deleteNote(it) }
+                            onDeleteNote = { viewModel.deleteNote(it) },
+                            onTogglePin = { viewModel.updateNote(it.copy(isPinned = !it.isPinned)) }
                         )
                     }
                     "settings" -> AppBackground(isDark = isDark) {
                         SettingsScreen(
+                            user = viewModel.currentUser,
                             settings = settings,
                             onSettingsChange = { viewModel.updateSettings(it) },
                             onBack = { screen = currentTab }
@@ -242,8 +250,17 @@ fun LoginScreen(onLogin: (String, String) -> Unit, onNavigateToRegister: () -> U
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var error by remember { mutableStateOf("") }
+    val focusManager = LocalFocusManager.current
     val emailRegex = "^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\.[a-z]+$".toRegex()
+    
     LaunchedEffect(loginError) { if (loginError.isNotEmpty()) error = loginError }
+    
+    fun performLogin() {
+        if (email.isBlank() || password.isBlank()) error = "Completa los campos"
+        else if (!email.matches(emailRegex)) error = "Correo no válido"
+        else onLogin(email, password)
+    }
+
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Spacer(Modifier.height(65.dp))
         Box(
@@ -265,12 +282,38 @@ fun LoginScreen(onLogin: (String, String) -> Unit, onNavigateToRegister: () -> U
         Text(if (settings.language == Language.ES) "Bienvenido a DayTask" else "Welcome to DayTask", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
         Text("Haz que cada día cuente.", color = TextGray)
         Spacer(Modifier.height(35.dp))
-        OutlinedTextField(email, { email = it; error = "" }, Modifier.fillMaxWidth(), label = { Text("Correo electrónico") }, shape = RoundedCornerShape(14.dp))
+        
+        OutlinedTextField(
+            value = email, 
+            onValueChange = { email = it; error = "" }, 
+            modifier = Modifier.fillMaxWidth(), 
+            label = { Text("Correo electrónico") }, 
+            shape = RoundedCornerShape(14.dp),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
+            keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
+            singleLine = true
+        )
+        
         Spacer(Modifier.height(14.dp))
-        OutlinedTextField(password, { password = it; error = "" }, Modifier.fillMaxWidth(), label = { Text("Contraseña") }, visualTransformation = PasswordVisualTransformation(), shape = RoundedCornerShape(14.dp))
+        
+        OutlinedTextField(
+            value = password, 
+            onValueChange = { password = it; error = "" }, 
+            modifier = Modifier.fillMaxWidth(), 
+            label = { Text("Contraseña") }, 
+            visualTransformation = PasswordVisualTransformation(), 
+            shape = RoundedCornerShape(14.dp),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { 
+                focusManager.clearFocus()
+                performLogin()
+            }),
+            singleLine = true
+        )
+        
         if (error.isNotEmpty()) Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
         Spacer(Modifier.height(25.dp))
-        Button({ if (email.isBlank() || password.isBlank()) error = "Completa los campos"; else if (!email.matches(emailRegex)) error = "Correo no válido"; else onLogin(email, password) }, Modifier.fillMaxWidth().height(55.dp), shape = RoundedCornerShape(15.dp)) { Text(if (settings.language == Language.ES) "Iniciar sesión" else "Log In", fontWeight = FontWeight.Bold) }
+        Button(onClick = { focusManager.clearFocus(); performLogin() }, modifier = Modifier.fillMaxWidth().height(55.dp), shape = RoundedCornerShape(15.dp)) { Text(if (settings.language == Language.ES) "Iniciar sesión" else "Log In", fontWeight = FontWeight.Bold) }
         Spacer(Modifier.height(12.dp))
         TextButton(onClick = onNavigateToRegister) { Text(if (settings.language == Language.ES) "¿No tienes cuenta? Regístrate" else "Don't have an account? Sign Up") }
     }
@@ -282,20 +325,66 @@ fun RegisterScreen(onRegister: (String, String, String) -> Unit, onBack: () -> U
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var error by remember { mutableStateOf("") }
+    val focusManager = LocalFocusManager.current
     val emailRegex = "^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\.[a-z]+$".toRegex()
+
+    fun performRegister() {
+        if (name.isBlank() || email.isBlank() || password.isBlank()) error = "Completa los campos"
+        else if (!email.matches(emailRegex)) error = "Email inválido"
+        else if (password.length < 6) error = "Mínimo 6 caracteres"
+        else onRegister(name, email, password)
+    }
+
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Spacer(Modifier.height(40.dp))
         IconButton(onClick = onBack, modifier = Modifier.align(Alignment.Start)) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") }
         Text(if (settings.language == Language.ES) "Crear Cuenta" else "Create Account", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(35.dp))
-        OutlinedTextField(name, { name = it; error = "" }, Modifier.fillMaxWidth(), label = { Text("Nombre Completo") }, shape = RoundedCornerShape(14.dp))
+        
+        OutlinedTextField(
+            value = name, 
+            onValueChange = { name = it; error = "" }, 
+            modifier = Modifier.fillMaxWidth(), 
+            label = { Text("Nombre Completo") }, 
+            shape = RoundedCornerShape(14.dp),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+            keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
+            singleLine = true
+        )
+        
         Spacer(Modifier.height(14.dp))
-        OutlinedTextField(email, { email = it; error = "" }, Modifier.fillMaxWidth(), label = { Text("Email") }, shape = RoundedCornerShape(14.dp))
+        
+        OutlinedTextField(
+            value = email, 
+            onValueChange = { email = it; error = "" }, 
+            modifier = Modifier.fillMaxWidth(), 
+            label = { Text("Email") }, 
+            shape = RoundedCornerShape(14.dp),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
+            keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
+            singleLine = true
+        )
+        
         Spacer(Modifier.height(14.dp))
-        OutlinedTextField(password, { password = it; error = "" }, Modifier.fillMaxWidth(), label = { Text("Contraseña") }, visualTransformation = PasswordVisualTransformation(), shape = RoundedCornerShape(14.dp))
+        
+        OutlinedTextField(
+            value = password, 
+            onValueChange = { password = it; error = "" }, 
+            modifier = Modifier.fillMaxWidth(), 
+            label = { Text("Contraseña") }, 
+            visualTransformation = PasswordVisualTransformation(), 
+            shape = RoundedCornerShape(14.dp),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { 
+                focusManager.clearFocus()
+                performRegister()
+            }),
+            singleLine = true
+        )
+        
         if (error.isNotEmpty()) Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
         Spacer(Modifier.height(25.dp))
-        Button({ if (name.isBlank() || email.isBlank() || password.isBlank()) error = "Completa los campos"; else if (!email.matches(emailRegex)) error = "Email inválido"; else if (password.length < 6) error = "Mínimo 6 caracteres"; else onRegister(name, email, password) }, Modifier.fillMaxWidth().height(55.dp), shape = RoundedCornerShape(15.dp)) { Text(if (settings.language == Language.ES) "Registrarse" else "Sign Up", fontWeight = FontWeight.Bold) }
+        Button(onClick = { focusManager.clearFocus(); performRegister() }, modifier = Modifier.fillMaxWidth().height(55.dp), shape = RoundedCornerShape(15.dp)) { Text(if (settings.language == Language.ES) "Registrarse" else "Sign Up", fontWeight = FontWeight.Bold) }
     }
 }
 
@@ -372,13 +461,33 @@ fun UserLevelDisplay(user: com.angelina.daytask.data.UserEntity?) {
     val animatedProgress by animateFloatAsState(targetValue = progress, animationSpec = tween(1000), label = "xp")
 
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
-            Text(
-                text = "Nivel ${user.level}", 
-                style = MaterialTheme.typography.titleSmall, 
-                fontWeight = FontWeight.Bold,
-                color = PrimaryPurple
-            )
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "Nivel ${user.level}", 
+                    style = MaterialTheme.typography.titleSmall, 
+                    fontWeight = FontWeight.Bold,
+                    color = PrimaryPurple
+                )
+                if (user.streakCount > 0) {
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Surface(
+                        color = Color(0xFFFF9800).copy(alpha = 0.1f),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Row(modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text("🔥", fontSize = 12.sp)
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "${user.streakCount}", 
+                                style = MaterialTheme.typography.labelSmall, 
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFE65100)
+                            )
+                        }
+                    }
+                }
+            }
             Text(
                 text = "${user.xp} / 100 XP", 
                 style = MaterialTheme.typography.labelSmall, 
@@ -455,8 +564,18 @@ fun AddTaskDialog(settings: UserSettings, onDismiss: () -> Unit, onConfirm: (Str
     )
 
     AlertDialog(onDismissRequest = onDismiss, title = { Text(if (settings.language == Language.ES) "Nueva Actividad" else "New Activity", fontWeight = FontWeight.Bold) }, text = {
+        val focusManager = LocalFocusManager.current
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            OutlinedTextField(n, { n = it }, label = { Text("Nombre") }, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(
+                value = n, 
+                onValueChange = { n = it }, 
+                label = { Text("Nombre") }, 
+                shape = RoundedCornerShape(12.dp), 
+                modifier = Modifier.fillMaxWidth(),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
+                singleLine = true
+            )
             
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Box(Modifier.weight(1f).clickable { datePickerDialog.show() }) {
@@ -502,7 +621,7 @@ fun AddTaskDialog(settings: UserSettings, onDismiss: () -> Unit, onConfirm: (Str
 }
 
 @Composable
-fun NotesScreen(notes: List<Note>, settings: UserSettings, onNavigateToSettings: () -> Unit, onAddNote: (Note) -> Unit, onDeleteNote: (Note) -> Unit) {
+fun NotesScreen(notes: List<Note>, settings: UserSettings, onNavigateToSettings: () -> Unit, onAddNote: (Note) -> Unit, onDeleteNote: (Note) -> Unit, onTogglePin: (Note) -> Unit) {
     var showDialog by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var selectedFilter by remember { mutableStateOf<NoteCategory?>(null) }
@@ -538,7 +657,7 @@ fun NotesScreen(notes: List<Note>, settings: UserSettings, onNavigateToSettings:
             Spacer(Modifier.height(16.dp))
             LazyColumn(verticalArrangement = Arrangement.spacedBy(16.dp), contentPadding = PaddingValues(bottom = 100.dp)) {
                 items(filteredNotes) { note ->
-                    NoteCard(note, onDelete = { onDeleteNote(note) })
+                    NoteCard(note, onDelete = { onDeleteNote(note) }, onTogglePin = { onTogglePin(note) })
                 }
             }
         }
@@ -550,7 +669,7 @@ fun NotesScreen(notes: List<Note>, settings: UserSettings, onNavigateToSettings:
 }
 
 @Composable
-fun NoteCard(note: Note, onDelete: () -> Unit) {
+fun NoteCard(note: Note, onDelete: () -> Unit, onTogglePin: () -> Unit) {
     val catColor = when(note.category) {
         NoteCategory.URGENT -> Color(0xFFFF5252)
         NoteCategory.WORK -> Color(0xFF448AFF)
@@ -560,7 +679,7 @@ fun NoteCard(note: Note, onDelete: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
-        border = BorderStroke(1.dp, catColor.copy(alpha = 0.2f)),
+        border = BorderStroke(if (note.isPinned) 2.dp else 1.dp, if (note.isPinned) PrimaryPurple else catColor.copy(alpha = 0.2f)),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f))
     ) {
         Column(Modifier.padding(20.dp)) {
@@ -569,9 +688,21 @@ fun NoteCard(note: Note, onDelete: () -> Unit) {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(note.category.name, style = MaterialTheme.typography.labelSmall, color = catColor, fontWeight = FontWeight.Bold)
-                IconButton(onClick = onDelete, modifier = Modifier.size(20.dp)) {
-                    Icon(Icons.Default.Delete, null, tint = TextGray.copy(alpha = 0.5f))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(note.category.name, style = MaterialTheme.typography.labelSmall, color = catColor, fontWeight = FontWeight.Bold)
+                    if (note.isPinned) {
+                        Spacer(Modifier.width(8.dp))
+                        Icon(Icons.Default.Star, null, tint = PrimaryPurple, modifier = Modifier.size(14.dp))
+                    }
+                }
+                Row {
+                    IconButton(onClick = onTogglePin, modifier = Modifier.size(24.dp)) {
+                        Icon(if (note.isPinned) Icons.Default.Favorite else Icons.Default.FavoriteBorder, null, tint = if (note.isPinned) PrimaryPurple else TextGray.copy(alpha = 0.5f), modifier = Modifier.size(18.dp))
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    IconButton(onClick = onDelete, modifier = Modifier.size(24.dp)) {
+                        Icon(Icons.Default.Delete, null, tint = TextGray.copy(alpha = 0.5f), modifier = Modifier.size(18.dp))
+                    }
                 }
             }
             Text(note.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -608,6 +739,7 @@ fun AddNoteDialog(settings: UserSettings, onDismiss: () -> Unit, onConfirm: (Str
             }
         },
         text = {
+            val focusManager = LocalFocusManager.current
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 OutlinedTextField(
                     value = title,
@@ -615,7 +747,9 @@ fun AddNoteDialog(settings: UserSettings, onDismiss: () -> Unit, onConfirm: (Str
                     label = { Text(if (settings.language == Language.ES) "Título" else "Title") },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
-                    singleLine = true
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                    keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Down) })
                 )
                 
                 OutlinedTextField(
@@ -625,7 +759,8 @@ fun AddNoteDialog(settings: UserSettings, onDismiss: () -> Unit, onConfirm: (Str
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(150.dp),
-                    shape = RoundedCornerShape(16.dp)
+                    shape = RoundedCornerShape(16.dp),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default)
                 )
 
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -728,12 +863,14 @@ fun AdventureProgressMap(tasks: List<Task>, settings: UserSettings, modifier: Mo
         LandscapeType.MOUNTAIN -> if (isDark) listOf(Color(0xFF0F0C29), Color(0xFF302B63)) else listOf(Color(0xFF87CEEB), Color(0xFFE0F7FA))
         LandscapeType.FOREST -> if (isDark) listOf(Color(0xFF0D1F0D), Color(0xFF1B5E20)) else listOf(Color(0xFFB2EBF2), Color(0xFFE1F5FE))
         LandscapeType.DESERT -> if (isDark) listOf(Color(0xFF2C1608), Color(0xFF5D4037)) else listOf(Color(0xFFFFB74D), Color(0xFFFFF3E0))
+        LandscapeType.VOLCANO -> if (isDark) listOf(Color(0xFF212121), Color(0xFFB71C1C)) else listOf(Color(0xFFFF9800), Color(0xFFF44336))
     }
     
     val elementColor = when (settings.landscape) {
         LandscapeType.MOUNTAIN -> if (isDark) Color(0xFF455A64) else Color(0xFF90A4AE)
         LandscapeType.FOREST -> if (isDark) Color(0xFF1B5E20) else Color(0xFF2E7D32)
         LandscapeType.DESERT -> if (isDark) Color(0xFF5D4037) else Color(0xFFD4A373)
+        LandscapeType.VOLCANO -> Color(0xFF1B1B1B)
     }
 
     Column(modifier = modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f), RoundedCornerShape(24.dp)).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))) {
@@ -814,6 +951,22 @@ fun AdventureProgressMap(tasks: List<Task>, settings: UserSettings, modifier: Mo
                             lineTo(width, height); lineTo(width * 0.4f, height)
                         }, elementColor)
                     }
+                    LandscapeType.VOLCANO -> {
+                        val vPath = Path().apply {
+                            moveTo(width * 0.2f, height * 0.95f)
+                            lineTo(width * 0.5f, height * 0.4f)
+                            lineTo(width * 0.8f, height * 0.95f)
+                        }
+                        drawPath(vPath, elementColor)
+                        val lava = Path().apply {
+                            moveTo(width * 0.46f, height * 0.46f)
+                            lineTo(width * 0.5f, height * 0.4f)
+                            lineTo(width * 0.54f, height * 0.46f)
+                            quadraticTo(width * 0.5f, height * 0.5f, width * 0.46f, height * 0.46f)
+                        }
+                        drawCircle(Color(0xFFFF5722).copy(alpha = 0.3f), 15.dp.toPx(), androidx.compose.ui.geometry.Offset(width * 0.5f, height * 0.45f))
+                        drawPath(lava, Color(0xFFFF5722))
+                    }
                 }
                 drawPath(adventurePath, Color.White.copy(alpha = 0.4f), style = Stroke(6.dp.toPx(), cap = StrokeCap.Round))
                 for (i in 0..totalCount) {
@@ -823,7 +976,7 @@ fun AdventureProgressMap(tasks: List<Task>, settings: UserSettings, modifier: Mo
             }
             // Indicador con rebote
             Box(Modifier.align(Alignment.TopStart).padding(start = (indicatorPos.x / density).dp - 15.dp, top = (indicatorPos.y / density).dp - 35.dp - bounceValue.dp).size(32.dp).clip(CircleShape).background(Color.White).padding(2.dp).background(PrimaryPurple, CircleShape), Alignment.Center) {
-                Text("🏃", Modifier.graphicsLayer(scaleX = -1f), fontSize = 16.sp)
+                Text(settings.avatarEmoji, Modifier.graphicsLayer(scaleX = -1f), fontSize = 16.sp)
             }
         }
         Row(
@@ -843,7 +996,12 @@ fun AdventureProgressMap(tasks: List<Task>, settings: UserSettings, modifier: Mo
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(settings: UserSettings, onSettingsChange: (UserSettings) -> Unit, onBack: () -> Unit) {
+fun SettingsScreen(
+    user: com.angelina.daytask.data.UserEntity?,
+    settings: UserSettings, 
+    onSettingsChange: (UserSettings) -> Unit, 
+    onBack: () -> Unit
+) {
     val isDark = settings.darkTheme
     Scaffold(containerColor = Color.Transparent, topBar = { CenterAlignedTopAppBar(title = { Text(if (settings.language == Language.ES) "Ajustes" else "Settings", fontWeight = FontWeight.Bold) }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") } }, colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)) }) { p ->
         Column(Modifier.fillMaxSize().padding(p).padding(24.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
@@ -856,7 +1014,39 @@ fun SettingsScreen(settings: UserSettings, onSettingsChange: (UserSettings) -> U
             SettingsSection("Paisaje", isDark) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     LandscapeType.entries.forEach { type ->
-                        LandscapeOption(type.name, settings.landscape == type) { onSettingsChange(settings.copy(landscape = type)) }
+                        val isLocked = type == LandscapeType.VOLCANO && (user?.level ?: 1) < 2
+                        LandscapeOption(
+                            label = type.name, 
+                            selected = settings.landscape == type,
+                            locked = isLocked
+                        ) { 
+                            onSettingsChange(settings.copy(landscape = type)) 
+                        }
+                    }
+                }
+            }
+            SettingsSection("Avatar", isDark) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    listOf("🏃", "🚴", "🛹", "🚀", "🛸").forEach { emoji ->
+                        val isSelected = settings.avatarEmoji == emoji
+                        Box(
+                            modifier = Modifier
+                                .size(45.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(if (isSelected) PrimaryPurple else Color.Transparent)
+                                .border(
+                                    1.dp, 
+                                    if (isSelected) PrimaryPurple else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                                    RoundedCornerShape(12.dp)
+                                )
+                                .clickable { onSettingsChange(settings.copy(avatarEmoji = emoji)) },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(emoji, fontSize = 20.sp)
+                        }
                     }
                 }
             }
@@ -888,18 +1078,21 @@ fun ThemeOption(label: String, selected: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-fun LandscapeOption(label: String, selected: Boolean, onClick: () -> Unit) {
+fun LandscapeOption(label: String, selected: Boolean, locked: Boolean = false, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .clickable(onClick = onClick)
+            .clickable(enabled = !locked, onClick = onClick)
             .padding(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        RadioButton(selected = selected, onClick = onClick)
+        RadioButton(selected = selected, onClick = onClick, enabled = !locked)
         Spacer(Modifier.width(8.dp))
-        Text(label, color = MaterialTheme.colorScheme.onSurface)
+        Text(
+            text = if (locked) "$label (🔒 Nivel 2)" else label, 
+            color = if (locked) TextGray.copy(alpha = 0.5f) else MaterialTheme.colorScheme.onSurface
+        )
     }
 }
 

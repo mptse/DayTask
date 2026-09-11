@@ -15,6 +15,7 @@ import com.angelina.daytask.data.model.UserSettings
 import com.angelina.daytask.util.NotificationHelper
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import java.util.Calendar
 
 class MainViewModel(
     application: Application,
@@ -29,6 +30,7 @@ class MainViewModel(
 
     val notes: StateFlow<List<Note>> = noteDao.getAllNotes().map { entities ->
         entities.map { it.toModel() }
+            .sortedWith(compareByDescending<Note> { it.isPinned }.thenByDescending { it.id })
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     var currentUser by mutableStateOf<UserEntity?>(null)
@@ -51,10 +53,10 @@ class MainViewModel(
 
     fun updateTask(task: Task) {
         viewModelScope.launch {
-            // Check if it was just completed to add XP
             val oldTask = tasks.value.find { it.id == task.id }
             if (task.completed && oldTask?.completed == false) {
                 gainXP(task.xp)
+                updateStreak()
             }
             
             taskDao.updateTask(task.toEntity())
@@ -71,13 +73,41 @@ class MainViewModel(
         var newXP = user.xp + amount
         var newLevel = user.level
         
-        // Level up logic (100 XP per level)
         while (newXP >= 100) {
             newXP -= 100
             newLevel++
         }
         
         val updatedUser = user.copy(xp = newXP, level = newLevel)
+        currentUser = updatedUser
+        viewModelScope.launch {
+            userDao.updateUser(updatedUser)
+        }
+    }
+
+    private fun updateStreak() {
+        val user = currentUser ?: return
+        val now = Calendar.getInstance()
+        val last = Calendar.getInstance()
+        last.timeInMillis = user.lastCompletionDate
+
+        val isSameDay = last.get(Calendar.YEAR) == now.get(Calendar.YEAR) &&
+                last.get(Calendar.DAY_OF_YEAR) == now.get(Calendar.DAY_OF_YEAR)
+
+        if (user.lastCompletionDate != 0L && isSameDay) return
+
+        val yesterday = Calendar.getInstance()
+        yesterday.add(Calendar.DAY_OF_YEAR, -1)
+        val isConsecutive = last.get(Calendar.YEAR) == yesterday.get(Calendar.YEAR) &&
+                last.get(Calendar.DAY_OF_YEAR) == yesterday.get(Calendar.DAY_OF_YEAR)
+
+        val newStreak = if (user.lastCompletionDate == 0L || isConsecutive) {
+            user.streakCount + 1
+        } else {
+            1
+        }
+
+        val updatedUser = user.copy(streakCount = newStreak, lastCompletionDate = now.timeInMillis)
         currentUser = updatedUser
         viewModelScope.launch {
             userDao.updateUser(updatedUser)
@@ -94,6 +124,12 @@ class MainViewModel(
     fun addNote(note: Note) {
         viewModelScope.launch {
             noteDao.insertNote(note.toEntity())
+        }
+    }
+
+    fun updateNote(note: Note) {
+        viewModelScope.launch {
+            noteDao.updateNote(note.toEntity())
         }
     }
 
@@ -139,5 +175,5 @@ class MainViewModel(
 fun TaskEntity.toModel() = Task(id, name, emoji, completed, xp, day, time)
 fun Task.toEntity() = TaskEntity(id, name, emoji, completed, xp, day, time)
 
-fun NoteEntity.toModel() = Note(id, title, content, date, category)
-fun Note.toEntity() = NoteEntity(id, title, content, date, category)
+fun NoteEntity.toModel() = Note(id, title, content, date, category, isPinned)
+fun Note.toEntity() = NoteEntity(id, title, content, date, category, isPinned)

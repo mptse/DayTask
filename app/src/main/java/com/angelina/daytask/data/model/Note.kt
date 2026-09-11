@@ -9,5 +9,6 @@ data class Note(
     val title: String,
     val content: String,
     val date: String,
-    val category: NoteCategory = NoteCategory.PERSONAL
+    val category: NoteCategory = NoteCategory.PERSONAL,
+    val isPinned: Boolean = false
 )
